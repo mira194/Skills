@@ -1,0 +1,29 @@
+{
+  "skill_name": "librosa_qcm",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Analyze speech_vs_music.wav and answer: What type of audio is this? Choices: A=Speech, B=Music",
+      "expected_output": "Answer should be A (speech) with confidence > 0.6",
+      "files": ["speech_vs_music.wav"]
+    },
+    {
+      "id": 2,
+      "prompt": "Analyze loud_vs_quiet.wav and answer: Is this audio loud or quiet? Choices: A=Loud, B=Quiet",
+      "expected_output": "Answer should match the actual level of the test file",
+      "files": ["loud_vs_quiet.wav"]
+    },
+    {
+      "id": 3,
+      "prompt": "Analyze silence.wav and answer: What does this audio contain? Choices: A=Speech, B=Silence",
+      "expected_output": "Answer should be B (silence) with confidence > 0.9",
+      "files": ["silence.wav"]
+    },
+    {
+      "id": 4,
+      "prompt": "Analyze fast_tempo.wav and answer: Is the tempo fast or slow? Choices: A=Fast, B=Slow",
+      "expected_output": "Answer should match the actual tempo of the test file",
+      "files": ["fast_tempo.wav"]
+    }
+  ]
+}

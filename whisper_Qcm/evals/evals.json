@@ -1,0 +1,77 @@
+{
+  "skill_name": "whisper_qcm",
+  "evals": [
+    {
+      "id": 1,
+      "eval_name": "language-detection-french",
+      "prompt": "Quelle langue est parlée dans cet audio ?",
+      "choices": {"A": "Français", "B": "Anglais", "C": "Espagnol"},
+      "expected_output": "A",
+      "files": [],
+      "assertions": []
+    },
+    {
+      "id": 2,
+      "eval_name": "language-detection-english",
+      "prompt": "What language is being spoken?",
+      "choices": {"A": "French", "B": "English", "C": "German"},
+      "expected_output": "B",
+      "files": [],
+      "assertions": []
+    },
+    {
+      "id": 3,
+      "eval_name": "speech-presence-yes",
+      "prompt": "Y a-t-il de la parole dans cet audio ?",
+      "choices": {"A": "Oui", "B": "Non"},
+      "expected_output": "A",
+      "files": [],
+      "assertions": []
+    },
+    {
+      "id": 4,
+      "eval_name": "speech-presence-no",
+      "prompt": "Y a-t-il de la parole dans cet audio ?",
+      "choices": {"A": "Oui", "B": "Non"},
+      "expected_output": "B",
+      "files": [],
+      "assertions": []
+    },
+    {
+      "id": 5,
+      "eval_name": "duration-short",
+      "prompt": "Le discours est-il long ou court ?",
+      "choices": {"A": "< 30s", "B": "> 30s"},
+      "expected_output": "A",
+      "files": [],
+      "assertions": []
+    },
+    {
+      "id": 6,
+      "eval_name": "duration-long",
+      "prompt": "Le discours est-il long ou court ?",
+      "choices": {"A": "< 30s", "B": "> 30s"},
+      "expected_output": "B",
+      "files": [],
+      "assertions": []
+    },
+    {
+      "id": 7,
+      "eval_name": "topic-classification",
+      "prompt": "What is the main topic of this audio?",
+      "choices": {"A": "Technology and AI", "B": "Cooking recipes", "C": "Sports news"},
+      "expected_output": "A",
+      "files": [],
+      "assertions": []
+    },
+    {
+      "id": 8,
+      "eval_name": "speaker-count",
+      "prompt": "Combien de personnes parlent dans cet audio ?",
+      "choices": {"A": "Une", "B": "Deux", "C": "Trois ou plus"},
+      "expected_output": "A",
+      "files": [],
+      "assertions": []
+    }
+  ]
+}
