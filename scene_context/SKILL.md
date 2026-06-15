@@ -1,3 +1,10 @@
+---
+name: scene_context
+description: >
+  Classify the acoustic context or scene of an audio file by combining Librosa feature extraction and PANNs CNN14 (AudioSet) audio classification.
+  Use this skill when the user wants to classify the acoustic scene or environment of an audio file, understand the context of an audio recording, or combine low-level signal processing features with deep learning-based audio tagging.
+---
+
 # scene_context
 
 Classify the acoustic context or scene of an audio file by combining Librosa feature extraction and PANNs CNN14 (AudioSet) audio classification.

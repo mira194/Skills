@@ -79,10 +79,10 @@ def main():
     room_size = classify_room_size(rt60)
 
     result = {
-        "rt60_seconds": round(rt60, 3) if rt60 is not None else None,
-        "noise_floor_db": round(noise_floor_db, 2),
+        "rt60_seconds": float(round(rt60, 3)) if rt60 is not None else None,
+        "noise_floor_db": float(round(noise_floor_db, 2)),
         "estimated_room_size": room_size,
-        "audio_duration_seconds": round(len(y) / sr, 2)
+        "audio_duration_seconds": float(round(len(y) / sr, 2))
     }
 
     print(json.dumps(result, indent=2))

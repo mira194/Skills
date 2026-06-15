@@ -1,3 +1,10 @@
+---
+name: environment_detection
+description: >
+  Estimer les caractéristiques acoustiques d'un environnement (RT60, plancher de bruit, taille de pièce) à partir d'un fichier audio en utilisant l'analyse de l'enveloppe RMS et l'estimation de la courbe de décroissance d'énergie (EDC) via `librosa`.
+  Utilisez ce skill lorsque l'utilisateur souhaite estimer le temps de réverbération (RT60), classifier la taille approximative d'une pièce, ou analyser le plancher de bruit.
+---
+
 # environment_detection
 
 Estimer les caractéristiques acoustiques d'un environnement (RT60, plancher de bruit, taille de pièce) à partir d'un fichier audio en utilisant l'analyse de l'enveloppe RMS et l'estimation de la courbe de décroissance d'énergie (EDC) via `librosa`.

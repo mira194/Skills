@@ -48,7 +48,10 @@ def main():
     audio_tensor = torch.Tensor(audio_panns).unsqueeze(0).to(device)
     
     clipwise_output, _ = at.inference(audio_tensor)
-    clipwise_output = clipwise_output.detach().cpu().numpy()[0]
+    if isinstance(clipwise_output, np.ndarray):
+        clipwise_output = clipwise_output[0]
+    else:
+        clipwise_output = clipwise_output.detach().cpu().numpy()[0]
     
     # Get top 5 labels
     top_indices = np.argsort(clipwise_output)[-5:][::-1]
