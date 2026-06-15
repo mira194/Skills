@@ -1,0 +1,26 @@
+{
+  "skill_name": "energy_dynamics",
+  "evals": [
+    {
+      "id": 1,
+      "name": "basic_rms_analysis",
+      "prompt": "I have an audio file at `test_audio.wav`. Can you analyze its energy and tell me how dynamic it is?",
+      "expected_output": "JSON output containing mean_rms_db, crest_factor_db, and dynamic_range_db for the file.",
+      "files": ["test_audio.wav"]
+    },
+    {
+      "id": 2,
+      "name": "compare_dynamics",
+      "prompt": "Compare the dynamic range and RMS energy of these two files: `track1.mp3` and `track2.mp3`. Which one is more compressed?",
+      "expected_output": "JSON output for both files, with a clear explanation of which has a lower crest factor / dynamic range, indicating more compression.",
+      "files": ["track1.mp3", "track2.mp3"]
+    },
+    {
+      "id": 3,
+      "name": "missing_file_handling",
+      "prompt": "Analyze the energy dynamics of `nonexistent_file.flac`.",
+      "expected_output": "A clear error message indicating the file was not found, without crashing.",
+      "files": []
+    }
+  ]
+}
