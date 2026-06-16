@@ -1,0 +1,26 @@
+{
+  "skill_name": "audio_split",
+  "evals": [
+    {
+      "id": 1,
+      "name": "basic_short_audio_split",
+      "prompt": "I have an audio file at '/workspace/test_audio.wav'. Please split it into 3 equal segments and save them in '/workspace/output/'. Also save the full audio there. Return the JSON with the paths and durations.",
+      "expected_output": "A JSON object containing 'full', 'seg1', 'seg2', 'seg3' paths pointing to /workspace/output/, along with 'duration_seconds' and 'segment_duration' as floats.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "long_audio_split_verification",
+      "prompt": "Take the audio file '/workspace/long_podcast.mp3', calculate its total duration, and split it into exactly 3 equal parts by sample index. Save all 4 files (full + 3 segments) to '/workspace/podcast_splits/' and give me the JSON summary.",
+      "expected_output": "A JSON object with the 4 file paths in '/workspace/podcast_splits/', and duration_seconds roughly matching the original file length, with segment_duration being exactly duration_seconds / 3.0.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "edge_case_very_short_audio",
+      "prompt": "Split this very short audio clip '/workspace/short_click.wav' into 3 segments and save them to '/workspace/short_output/'. Return the standard JSON format.",
+      "expected_output": "A valid JSON object with the 4 paths. Even if the audio is very short, the script should handle the sample slicing without index errors and return valid float durations.",
+      "files": []
+    }
+  ]
+}
