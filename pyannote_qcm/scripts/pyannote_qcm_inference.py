@@ -24,12 +24,36 @@ def run_pyannote_qcm(audio_path: str, question: str, choices: dict) -> dict:
         from pyannote.audio import Pipeline
 
         hf_token = os.environ.get("HF_TOKEN")
-        try:
-            pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", use_auth_token=hf_token)
-        except Exception:
+        pipeline = None
+        # pyannote.audio >=4.0 renamed use_auth_token -> token; try both for
+        # cross-version compatibility (verified against 4.0.7 in a clean venv).
+        for kwargs in ({"token": hf_token}, {"use_auth_token": hf_token}):
+            try:
+                pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", **kwargs)
+                break
+            except TypeError:
+                continue
+            except Exception:
+                pipeline = None
+                break
+        if pipeline is None:
             return {"answer": "", "confidence": 0.0, "detail": "Failed to load pyannote model (check HF_TOKEN)"}
 
-        diarization = pipeline(audio_path)
+        # torchcodec (the default decoder backend in pyannote.audio 4.x) needs
+        # ffmpeg shared libs that are often missing. Decode via soundfile into
+        # an in-memory waveform dict instead, which sidesteps that dependency.
+        pipeline_input = audio_path
+        try:
+            import soundfile as sf
+            data, sr = sf.read(audio_path, dtype="float32", always_2d=True)
+            pipeline_input = {"waveform": torch.from_numpy(data.T), "sample_rate": sr}
+        except Exception:
+            pass  # fall back to passing the raw path
+
+        raw_output = pipeline(pipeline_input)
+        # pyannote.audio >=4.0 wraps the result in a DiarizeOutput object;
+        # earlier versions return the Annotation directly.
+        diarization = getattr(raw_output, "speaker_diarization", raw_output)
 
         speakers = set()
         speaker_durations = {}
