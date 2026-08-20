@@ -20,16 +20,14 @@ Answer multiple-choice questions about audio files by separating the audio into 
 2. Compute RMS energy for each separated stem
 3. Analyze the relative energy distribution across stems
 4. Map each QCM choice to expected stem energy patterns using built-in heuristics
-5. Return the best-matching choice with confidence based on energy separation
+5. Return the best-matching choice with confidence based on energy separation (capped at 0.75 for the Probabilistic tier)
 
 ## Dependencies
 
-```
 demucs
 torch
 librosa
 numpy
-```
 
 Install with: `pip install demucs torch librosa numpy`
 
@@ -44,16 +42,15 @@ Install with: `pip install demucs torch librosa numpy`
 ```bash
 python scripts/demucs_qcm_inference.py \
     --audio path/to/audio.wav \
-    --question "Which source is most prominent?" \
-    --choices '{"A": "Vocals", "B": "Drums", "C": "Bass", "D": "Other"}'
+    --payload '{"question": "Which source is most prominent?", "choices": {"A": "Vocals", "B": "Drums", "C": "Bass", "D": "Other"}}'
 ```
 
 Output:
 ```json
 {
   "answer": "A",
-  "confidence": 0.78,
-  "detail": "Vocals stem has highest RMS energy (0.245) compared to drums (0.112), bass (0.089), other (0.156). Vocal dominance indicates choice A is correct."
+  "confidence": 0.75,
+  "detail": "Pattern 'dominant_source' matched. Stem energies: vocals=0.2450, drums=0.1120, bass=0.0890, other=0.1560. Scores: {'A': 0.245, 'B': 0.112, 'C': 0.089, 'D': 0.156}. "
 }
 ```
 
@@ -64,6 +61,7 @@ from scripts.demucs_qcm_inference import separate_and_analyze, answer_qcm
 
 # Separate and get stem energies
 stems = separate_and_analyze("audio.wav")
+
 # Returns: {"vocals": rms_float, "drums": rms_float, "bass": rms_float, "other": rms_float}
 
 # Answer a QCM
@@ -115,7 +113,13 @@ For questions that don't match built-in patterns, the script uses a scoring appr
 1. Each choice is associated with expected stem energy patterns
 2. The actual stem energies are compared to each choice's expected patterns
 3. The choice with the best match (lowest distance) is selected
-4. Confidence is derived from the margin between the top two choices
+4. Confidence is derived from the margin between the top two choices, capped at 0.75
+
+## Reliability Tier
+
+- **Tier**: Probabilistic
+- **Max Confidence**: 0.75
+- **Notes**: Stem separation quality and energy-based mapping are heuristic in nature — confidence is capped to reflect the probabilistic nature of mapping energy ratios to QCM choices, consistent with other tool-based evidence in the pipeline.
 
 ## Limitations
 
