@@ -47,9 +47,8 @@ Install with: `pip install crepe librosa scipy numpy`
 
 ```bash
 python Scripts/crepe_qcm_inference.py \
-    --wav path/to/audio.wav \
-    --question "Is this a sung or spoken voice?" \
-    --choices '{"A": "Sung voice", "B": "Spoken voice"}'
+    --audio path/to/audio.wav \
+    --payload '{"question": "Is this a sung or spoken voice?", "choices": {"A": "Sung voice", "B": "Spoken voice"}}'
 ```
 
 Output:
