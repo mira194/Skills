@@ -56,8 +56,7 @@ python3 -c "import pyannote.audio; print('✓ pyannote.audio')" 2>/dev/null || e
 ```bash
 python scripts/pyannote_qcm_inference.py \
     --audio path/to/audio.wav \
-    --question "How many speakers are in this audio?" \
-    --choices '{"A": "One", "B": "Two", "C": "Three or more"}'
+    --payload '{"question": "How many speakers are in this audio?", "choices": {"A": "One", "B": "Two", "C": "Three or more"}}'
 ```
 
 Output:
