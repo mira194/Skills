@@ -1,13 +1,14 @@
 """
 PANNs CNN14 audio QCM inference script.
 
-Takes a WAV file and explicit AudioSet class indices per choice,
-runs PANNs CNN14 inference, and returns scores to determine the best answer.
+Takes an audio file and QCM choices (as text), maps each choice's text to
+relevant AudioSet class indices via keyword matching, runs PANNs CNN14
+inference, and returns the best-scoring choice.
 
 Usage:
     python audio_qcm_inference.py \
-        --wav path/to/audio.wav \
-        --class-map '{"A": [0,1,2,3], "B": [500]}' \
+        --audio path/to/audio.wav \
+        --payload '{"question": "...", "choices": {"A": "Speech", "B": "Silence"}}' \
         [--model-path path/to/Cnn14_mAP=0.431.pth]
 
 Output: JSON dict with keys: answer (str), confidence (float), details (dict)
@@ -16,6 +17,7 @@ Output: JSON dict with keys: answer (str), confidence (float), details (dict)
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 
 import librosa
@@ -23,6 +25,7 @@ import numpy as np
 import torch
 import csv
 
+CONFIDENCE_CAP = 0.75  # Probabilistic tier
 
 # ---------------------------------------------------------------------------
 # Label loading
@@ -42,6 +45,42 @@ def load_class_labels(labels_path=None):
             idx = int(row['index'])
             labels[idx] = row['display_name'].strip('"')
     return labels
+
+
+# ---------------------------------------------------------------------------
+# NEW: choice text -> AudioSet indices translation layer
+# (Not present in the original script despite being described in SKILL.md —
+# added here so the tool can accept the same text-based payload as the
+# other 8 skills, instead of requiring pre-computed numeric indices.)
+# ---------------------------------------------------------------------------
+
+_KEYWORD_MAP = {
+    "speech": list(range(0, 16)), "parole": list(range(0, 16)),
+    "music": list(range(137, 282)), "musique": list(range(137, 282)),
+    "dog": list(range(74, 81)), "chien": list(range(74, 81)),
+    "bird": list(range(111, 122)), "oiseau": list(range(111, 122)),
+    "rain": list(range(288, 292)), "pluie": list(range(288, 292)),
+    "silence": [500],
+    "noise": list(range(512, 523)), "bruit": list(range(512, 523)),
+}
+
+def _extract_keywords(text):
+    return re.findall(r"[a-zA-ZÀ-ÿ]{3,}", text.lower())
+
+def get_classes_for_keyword(keyword, labels):
+    """Fuzzy-match a keyword against the built-in map, then against all
+    527 AudioSet display names as a fallback."""
+    if keyword in _KEYWORD_MAP:
+        return _KEYWORD_MAP[keyword]
+    matches = [idx for idx, name in labels.items() if keyword in name.lower()]
+    return matches
+
+def choice_to_indices(choice_text, labels):
+    """Translate a QCM choice's free text into AudioSet class indices."""
+    indices = set()
+    for kw in _extract_keywords(choice_text):
+        indices.update(get_classes_for_keyword(kw, labels))
+    return sorted(indices)
 
 
 # ---------------------------------------------------------------------------
@@ -82,7 +121,6 @@ class ConvBlock(torch.nn.Module):
 class Cnn14(torch.nn.Module):
     def __init__(self, classes_num=527):
         super().__init__()
-        # Mel spectrogram parameters
         self.sample_rate = 32000
         self.n_fft = 1024
         self.hop_length = 320
@@ -90,7 +128,6 @@ class Cnn14(torch.nn.Module):
         self.fmin = 50
         self.fmax = 14000
 
-        # CNN backbone
         self.conv_block1 = ConvBlock(1, 64)
         self.conv_block2 = ConvBlock(64, 128)
         self.conv_block3 = ConvBlock(128, 256)
@@ -104,29 +141,20 @@ class Cnn14(torch.nn.Module):
         init_layer(self.fc_audioset)
 
     def mel_spectrogram(self, wav):
-        """Compute log-mel spectrogram using librosa."""
         mel = librosa.feature.melspectrogram(
             y=wav, sr=self.sample_rate, n_fft=self.n_fft,
             hop_length=self.hop_length, n_mels=self.n_mels,
             fmin=self.fmin, fmax=self.fmax, power=1.0)
-        # Convert to log scale
         log_mel = librosa.power_to_db(mel, ref=1.0, amin=1e-10, top_db=None)
-        # Normalize (matching PANNs training)
         log_mel = (log_mel + 50) / 50
         return log_mel
 
     def forward(self, wav):
-        """
-        Input: wav tensor of shape (batch_size, samples)
-        Output: dict with 'clipwise_output' (sigmoid probabilities)
-        """
-        # Compute log-mel spectrogram for each sample in batch
         mel_specs = []
         for i in range(wav.shape[0]):
             mel = self.mel_spectrogram(wav[i].cpu().numpy())
-            mel_specs.append(mel.T)  # (time, mel_bins)
+            mel_specs.append(mel.T)
 
-        # Pad to same time length
         max_time = max(m.shape[0] for m in mel_specs)
         padded = []
         for m in mel_specs:
@@ -135,14 +163,12 @@ class Cnn14(torch.nn.Module):
                 m = np.vstack([m, pad])
             padded.append(m)
 
-        x = np.array(padded)  # (batch, time, mel_bins)
+        x = np.array(padded)
         x = torch.FloatTensor(x).to(wav.device)
 
-        # Add channel dimension and normalize
-        x = x.unsqueeze(1)  # (batch, 1, time, mel_bins)
+        x = x.unsqueeze(1)
         x = torch.nn.functional.batch_norm(x, training=False)
 
-        # CNN forward
         x = self.conv_block1(x, pool_size=(2, 2))
         x = torch.nn.functional.dropout(x, p=0.2, training=False)
         x = self.conv_block2(x, pool_size=(2, 2))
@@ -156,13 +182,11 @@ class Cnn14(torch.nn.Module):
         x = self.conv_block6(x, pool_size=(1, 1))
         x = torch.nn.functional.dropout(x, p=0.2, training=False)
 
-        # Global pooling
-        x = torch.mean(x, dim=3)  # (batch, 2048, time)
-        x1, _ = torch.max(x, dim=2)  # max over time
-        x2 = torch.mean(x, dim=2)  # mean over time
+        x = torch.mean(x, dim=3)
+        x1, _ = torch.max(x, dim=2)
+        x2 = torch.mean(x, dim=2)
         x = x1 + x2
 
-        # Classification head
         x = torch.nn.functional.dropout(x, p=0.5, training=False)
         x = torch.nn.functional.relu_(self.fc1(x))
         embedding = torch.nn.functional.dropout(x, p=0.5, training=False)
@@ -176,24 +200,10 @@ class Cnn14(torch.nn.Module):
 # ---------------------------------------------------------------------------
 
 def run_inference(wav_path, class_map, model_path=None, device=None):
-    """
-    Run PANNs CNN14 inference and score each choice.
-
-    Args:
-        wav_path: Path to WAV file
-        class_map: Dict mapping choice keys to lists of AudioSet class indices
-                   e.g., {"A": [0, 1, 2], "B": [500]}
-        model_path: Path to pretrained weights file
-        device: Torch device string
-
-    Returns:
-        Dict with 'answer', 'confidence', 'details'
-    """
     if device is None:
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
     device = torch.device(device)
 
-    # Resolve model path
     if model_path is None:
         candidates = [
             os.path.expanduser('~/.cache/panns/Cnn14_mAP=0.431.pth'),
@@ -212,7 +222,6 @@ def run_inference(wav_path, class_map, model_path=None, device=None):
             "or pass --model-path explicitly."
         )
 
-    # Build and load model
     model = Cnn14(classes_num=527)
     checkpoint = torch.load(model_path, map_location=device, weights_only=False)
     state_dict = checkpoint['model'] if isinstance(checkpoint, dict) and 'model' in checkpoint else checkpoint
@@ -220,36 +229,29 @@ def run_inference(wav_path, class_map, model_path=None, device=None):
     model.to(device)
     model.eval()
 
-    # Load audio at model's expected sample rate
     audio, _ = librosa.load(wav_path, sr=model.sample_rate, mono=True)
     audio_tensor = torch.FloatTensor(audio).unsqueeze(0).to(device)
 
-    # Inference
     with torch.no_grad():
         output = model(audio_tensor)
 
-    scores = output['clipwise_output'].cpu().numpy()[0]  # (527,)
+    scores = output['clipwise_output'].cpu().numpy()[0]
     labels = load_class_labels()
 
-    # Score each choice by averaging its relevant class scores
     choice_scores = {}
     for key, indices in class_map.items():
         if indices:
             choice_scores[key] = float(np.mean(scores[indices]))
         else:
-            # Empty class list -> choice represents "absence" of target sounds
-            # Score = 1 - mean of all relevant classes from OTHER choices
             all_other = [i for k, v in class_map.items() if k != key for i in v]
             if all_other:
                 choice_scores[key] = 1.0 - float(np.mean(scores[all_other]))
             else:
-                choice_scores[key] = 0.5  # neutral fallback
+                choice_scores[key] = 0.5
 
-    # Pick winner
     best_key = max(choice_scores, key=choice_scores.get)
-    confidence = choice_scores[best_key]
+    confidence = min(choice_scores[best_key], CONFIDENCE_CAP)  # Probabilistic tier cap
 
-    # Top-10 detected sounds for context
     top10 = np.argsort(scores)[-10:][::-1]
     top10_details = [{'class': labels[i], 'score': round(float(scores[i]), 4)} for i in top10]
 
@@ -265,15 +267,22 @@ def run_inference(wav_path, class_map, model_path=None, device=None):
 
 def main():
     parser = argparse.ArgumentParser(description='PANNs CNN14 Audio QCM')
-    parser.add_argument('--wav', required=True, help='Path to WAV file')
-    parser.add_argument('--class-map', required=True,
-                        help='JSON: {"A": [0,1,2], "B": [500]}')
+    parser.add_argument('--audio', required=True, help='Path to audio file')
+    parser.add_argument('--payload', required=True,
+                        help='JSON: {"question": "...", "choices": {"A": "...", "B": "..."}}')
     parser.add_argument('--model-path', default=None, help='Path to .pth weights')
     parser.add_argument('--device', default=None, help='cpu or cuda')
     args = parser.parse_args()
 
-    class_map = json.loads(args.class_map)
-    result = run_inference(args.wav, class_map, args.model_path, args.device)
+    payload = json.loads(args.payload)
+    labels = load_class_labels()
+
+    class_map = {
+        choice_id: choice_to_indices(choice_text, labels)
+        for choice_id, choice_text in payload["choices"].items()
+    }
+
+    result = run_inference(args.audio, class_map, args.model_path, args.device)
     print(json.dumps(result, indent=2, ensure_ascii=False))
 
 
