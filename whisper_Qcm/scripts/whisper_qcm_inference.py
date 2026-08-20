@@ -8,8 +8,7 @@ then scores each QCM choice against those features to pick the best answer.
 Usage:
     python whisper_qcm_inference.py \
         --audio path/to/audio.wav \
-        --question "Quelle langue est parlée ?" \
-        --choices '{"A": "Français", "B": "Anglais", "C": "Espagnol"}'
+        --payload '{"question": "Quelle langue est parlée ?", "choices": {"A": "Français", "B": "Anglais", "C": "Espagnol"}}'
 
 Output: JSON dict with keys: answer (str), confidence (float), detail (str)
 """
@@ -21,46 +20,25 @@ import re
 import sys
 from pathlib import Path
 
+CONFIDENCE_CAP = 0.75  # Probabilistic tier
 
 # ---------------------------------------------------------------------------
 # Language name mapping
 # ---------------------------------------------------------------------------
 
 _LANG_NAMES = {
-    "en": "English",
-    "fr": "French",
-    "de": "German",
-    "es": "Spanish",
-    "it": "Italian",
-    "pt": "Portuguese",
-    "nl": "Dutch",
-    "ru": "Russian",
-    "ja": "Japanese",
-    "ko": "Korean",
-    "zh": "Chinese",
-    "ar": "Arabic",
-    "hi": "Hindi",
-    "tr": "Turkish",
-    "pl": "Polish",
-    "sv": "Swedish",
-    "da": "Danish",
-    "no": "Norwegian",
-    "fi": "Finnish",
-    "el": "Greek",
-    "cs": "Czech",
-    "ro": "Romanian",
-    "hu": "Hungarian",
-    "uk": "Ukrainian",
-    "th": "Thai",
-    "vi": "Vietnamese",
-    "id": "Indonesian",
-    "ms": "Malay",
+    "en": "English", "fr": "French", "de": "German", "es": "Spanish",
+    "it": "Italian", "pt": "Portuguese", "nl": "Dutch", "ru": "Russian",
+    "ja": "Japanese", "ko": "Korean", "zh": "Chinese", "ar": "Arabic",
+    "hi": "Hindi", "tr": "Turkish", "pl": "Polish", "sv": "Swedish",
+    "da": "Danish", "no": "Norwegian", "fi": "Finnish", "el": "Greek",
+    "cs": "Czech", "ro": "Romanian", "hu": "Hungarian", "uk": "Ukrainian",
+    "th": "Thai", "vi": "Vietnamese", "id": "Indonesian", "ms": "Malay",
     "ca": "Catalan",
 }
 
 
 def _lang_name(code):
-    """Return the human-readable language name for a Whisper language code."""
     return _LANG_NAMES.get(code, code)
 
 
@@ -69,40 +47,16 @@ def _lang_name(code):
 # ---------------------------------------------------------------------------
 
 def transcribe_audio(audio_path, model_size="base"):
-    """
-    Transcribe an audio file with Whisper.
-
-    Returns the full Whisper result dict:
-        {text, language, segments: [{start, end, text, ...}], ...}
-    """
     import whisper
-
     model = whisper.load_model(model_size)
     result = model.transcribe(audio_path)
     return result
-
 
 # ---------------------------------------------------------------------------
 # Feature extraction
 # ---------------------------------------------------------------------------
 
 def extract_features(whisper_result):
-    """
-    Extract structured features from a Whisper transcription result.
-
-    Returns a dict with:
-        - language_code: str (e.g. "fr")
-        - language_name: str (e.g. "French")
-        - transcript: str (full text)
-        - transcript_lower: str
-        - word_count: int
-        - total_duration_sec: float
-        - segment_count: int
-        - segments: list of {start, end, text, duration}
-        - avg_segment_duration: float
-        - has_speech: bool (True if transcript is non-empty)
-        - estimated_speakers: int (heuristic)
-    """
     lang_code = whisper_result.get("language", "unknown")
     transcript = whisper_result.get("text", "").strip()
     segments_raw = whisper_result.get("segments", [])
@@ -126,7 +80,6 @@ def extract_features(whisper_result):
     if segments:
         avg_seg_dur = sum(s["duration"] for s in segments) / len(segments)
 
-    # Heuristic speaker estimation based on segment pattern analysis
     estimated_speakers = _estimate_speakers(segments, transcript)
 
     return {
@@ -145,25 +98,15 @@ def extract_features(whisper_result):
 
 
 def _estimate_speakers(segments, transcript):
-    """
-    Heuristic speaker count estimation.
-
-    Whisper doesn't do diarization, but we can guess from:
-    - Number of distinct segments with pauses
-    - Presence of conversational markers
-    - Variation in segment length patterns
-    """
     if not segments:
         return 0
 
-    # Count significant pauses (>1.5s gap between segments)
     pauses = 0
     for i in range(1, len(segments)):
         gap = segments[i]["start"] - segments[i - 1]["end"]
         if gap > 1.5:
             pauses += 1
 
-    # Check for conversational turn-taking markers
     conv_markers = [
         r"\byes\b", r"\bno\b", r"\bI think\b", r"\bI agree\b",
         r"\bd'accord\b", r"\boui\b", r"\bnon\b", r"\bje pense\b",
@@ -173,7 +116,6 @@ def _estimate_speakers(segments, transcript):
     for marker in conv_markers:
         conv_count += len(re.findall(marker, transcript, re.IGNORECASE))
 
-    # Heuristic: many pauses + conversational markers → multiple speakers
     speaker_score = pauses + (conv_count // 3)
 
     if speaker_score >= 4:
@@ -191,33 +133,17 @@ def _estimate_speakers(segments, transcript):
 # ---------------------------------------------------------------------------
 
 def score_choices(question, choices, features):
-    """
-    Score each choice against extracted features.
-
-    Returns a dict: {choice_key: (score, detail)}
-    """
     question_lower = question.lower()
     scores = {}
 
-    # ── Question type detection ────────────────────────────────────────
-
-    # Language detection questions
     if any(kw in question_lower for kw in ["langue", "language", "spoken", "parlée", "parlé"]):
         scores = _score_language(choices, features)
-
-    # Speech presence questions
     elif any(kw in question_lower for kw in ["parole", "speech", "parle", "talking", "y a-t-il"]):
         scores = _score_speech_presence(choices, features)
-
-    # Duration / length questions
     elif any(kw in question_lower for kw in ["long", "court", "short", "duration", "durée", "<", ">"]):
         scores = _score_duration(choices, features)
-
-    # Speaker count questions
     elif any(kw in question_lower for kw in ["speaker", "locuteur", "personne", "people", "speaking"]):
         scores = _score_speaker_count(choices, features)
-
-    # Topic / content questions (keyword matching)
     else:
         scores = _score_topic(choices, features, question)
 
@@ -225,7 +151,6 @@ def score_choices(question, choices, features):
 
 
 def _score_language(choices, features):
-    """Score choices based on detected language."""
     scores = {}
     detected = features["language_code"]
     detected_name = features["language_name"].lower()
@@ -234,14 +159,11 @@ def _score_language(choices, features):
         choice_lower = choice_text.lower()
         detail = f"Detected language: {features['language_name']} ({detected})"
 
-        # Direct match on language name
         if detected_name in choice_lower or detected in choice_lower:
             scores[key] = (0.95, f"{detail}. Choice '{key}' matches detected language.")
-        # "Autre" / "Other" fallback
         elif any(kw in choice_lower for kw in ["autre", "other", "unknown", "none"]):
             scores[key] = (0.05, f"{detail}. Choice '{key}' is 'other' fallback.")
         else:
-            # Partial match on language family or related terms
             lang_aliases = {
                 "français": ["french", "francais", "français"],
                 "anglais": ["english", "anglais"],
@@ -250,6 +172,7 @@ def _score_language(choices, features):
                 "italien": ["italian", "italien"],
                 "portugais": ["portuguese", "português", "portugais"],
             }
+
             match = False
             for lang, aliases in lang_aliases.items():
                 if detected_name in aliases or detected == lang[:2]:
@@ -265,7 +188,6 @@ def _score_language(choices, features):
 
 
 def _score_speech_presence(choices, features):
-    """Score choices based on whether speech is present."""
     scores = {}
     has_speech = features["has_speech"]
     word_count = features["word_count"]
@@ -291,7 +213,6 @@ def _score_speech_presence(choices, features):
 
 
 def _score_duration(choices, features):
-    """Score choices based on audio/transcript duration."""
     scores = {}
     total_dur = features["total_duration_sec"]
     word_count = features["word_count"]
@@ -300,7 +221,6 @@ def _score_duration(choices, features):
         choice_lower = choice_text.lower()
         detail = f"Total duration: {total_dur:.1f}s, word count: {word_count}"
 
-        # Parse duration thresholds from choice text
         threshold = _parse_duration_threshold(choice_lower)
 
         if threshold is not None:
@@ -309,7 +229,6 @@ def _score_duration(choices, features):
             else:
                 scores[key] = (0.15, f"{detail}. Duration ({total_dur:.1f}s) > threshold ({threshold}s). Choice '{key}' unlikely.")
         else:
-            # Heuristic: "court"/"short" vs "long"/"longue"
             is_short = any(kw in choice_lower for kw in ["court", "short", "<", "less", "moins", "petit"])
             is_long = any(kw in choice_lower for kw in ["long", ">", "more", "plus", "grand", "étendu", "longue"])
 
@@ -328,8 +247,6 @@ def _score_duration(choices, features):
 
 
 def _parse_duration_threshold(choice_text):
-    """Extract a numeric duration threshold from choice text (e.g., '< 30s' → 30)."""
-    # Match patterns like "< 30s", "moins de 30 secondes", "under 30 sec"
     patterns = [
         r'[<≤]\s*(\d+)\s*s',
         r'[<≤]\s*(\d+)',
@@ -351,7 +268,6 @@ def _parse_duration_threshold(choice_text):
 
 
 def _score_speaker_count(choices, features):
-    """Score choices based on estimated speaker count."""
     scores = {}
     estimated = features["estimated_speakers"]
 
@@ -359,7 +275,6 @@ def _score_speaker_count(choices, features):
         choice_lower = choice_text.lower()
         detail = f"Estimated speakers: {estimated}"
 
-        # Try to extract a number from the choice
         number_match = re.search(r'(\d+)', choice_text)
         if number_match:
             choice_num = int(number_match.group(1))
@@ -382,16 +297,11 @@ def _score_speaker_count(choices, features):
 
 
 def _score_topic(choices, features, question):
-    """
-    Score choices based on keyword matching against transcript.
-    Used for topic/content questions when no specific question type is detected.
-    """
     scores = {}
     transcript_lower = features["transcript_lower"]
     word_count = features["word_count"]
 
     if not transcript_lower:
-        # No transcript → all choices equally unlikely
         for key in choices:
             scores[key] = (0.25, "No speech detected. Cannot determine topic.")
         return scores
@@ -399,14 +309,12 @@ def _score_topic(choices, features, question):
     for key, choice_text in choices.items():
         choice_lower = choice_text.lower()
 
-        # Extract keywords from choice (remove common stop words)
         keywords = _extract_keywords(choice_lower)
 
         if not keywords:
             scores[key] = (0.30, f"Choice '{key}' has no meaningful keywords to match.")
             continue
 
-        # Count keyword matches in transcript
         match_count = 0
         matched_words = []
         for kw in keywords:
@@ -414,9 +322,7 @@ def _score_topic(choices, features, question):
                 match_count += 1
                 matched_words.append(kw)
 
-        # Score based on match ratio
         match_ratio = match_count / len(keywords) if keywords else 0
-        # Scale by word count to avoid false positives on very short transcripts
         length_factor = min(word_count / 10, 1.0) if word_count > 0 else 0
         raw_score = match_ratio * (0.5 + 0.5 * length_factor)
 
@@ -436,7 +342,6 @@ def _score_topic(choices, features, question):
 
 
 def _extract_keywords(text):
-    """Extract meaningful keywords from text, removing stop words."""
     stop_words = {
         "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
         "have", "has", "had", "do", "does", "did", "will", "would", "could",
@@ -448,7 +353,6 @@ def _extract_keywords(text):
         "each", "few", "more", "most", "other", "some", "such", "no", "nor",
         "not", "only", "own", "same", "so", "than", "too", "very", "just",
         "and", "but", "or", "because", "if", "while", "about",
-        # French
         "le", "la", "les", "un", "une", "des", "du", "de", "et", "est", "sont",
         "était", "étaient", "être", "avoir", "a", "ont", "dans", "pour", "sur",
         "avec", "ce", "cette", "ces", "son", "sa", "ses", "notre", "votre",
@@ -457,47 +361,28 @@ def _extract_keywords(text):
         "ne", "plus", "moins", "tres", "bien", "tout", "tous", "toute",
     }
 
-    # Split on non-alphanumeric, keep words with 3+ chars
     words = re.findall(r'[a-zàâäéèêëïîôùûüÿçœæ]{3,}', text.lower())
     return [w for w in words if w not in stop_words]
-
 
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
 def run_whisper_qcm(audio_path, question, choices, model_size="base"):
-    """
-    Run Whisper transcription and answer a QCM about the audio.
-
-    Args:
-        audio_path: Path to audio file (WAV, MP3, FLAC, M4A, OGG)
-        question: The QCM question string
-        choices: Dict mapping choice keys to choice text, e.g. {"A": "French", "B": "English"}
-        model_size: Whisper model size (default: "base")
-
-    Returns:
-        Dict with keys: answer (str), confidence (float), detail (str)
-    """
-    # Transcribe
     whisper_result = transcribe_audio(audio_path, model_size=model_size)
-
-    # Extract features
     features = extract_features(whisper_result)
-
-    # Score choices
     scores = score_choices(question, choices, features)
 
-    # Pick winner
     best_key = max(scores, key=lambda k: scores[k][0])
     best_score, best_detail = scores[best_key]
 
-    # Normalize confidence: if all scores are very close, reduce confidence
     all_scores = [s for s, _ in scores.values()]
     if len(all_scores) > 1:
         score_range = max(all_scores) - min(all_scores)
         if score_range < 0.1:
-            best_score = max(best_score, 0.35)  # floor for ambiguous cases
+            best_score = max(best_score, 0.35)
+
+    best_score = min(best_score, CONFIDENCE_CAP)  # Probabilistic tier cap
 
     return {
         "answer": best_key,
@@ -509,13 +394,12 @@ def run_whisper_qcm(audio_path, question, choices, model_size="base"):
 def main():
     parser = argparse.ArgumentParser(description="Whisper QCM – Answer multiple-choice questions about audio using Whisper transcription")
     parser.add_argument("--audio", required=True, help="Path to audio file (WAV, MP3, FLAC, M4A, OGG)")
-    parser.add_argument("--question", required=True, help="The QCM question")
-    parser.add_argument("--choices", required=True, help='JSON: {"A": "Choice text", "B": "Choice text", ...}')
+    parser.add_argument("--payload", required=True, help='JSON: {"question": "...", "choices": {"A": "...", "B": "...", ...}}')
     parser.add_argument("--model", default="base", help="Whisper model size (default: base)")
     args = parser.parse_args()
 
-    choices = json.loads(args.choices)
-    result = run_whisper_qcm(args.audio, args.question, choices, model_size=args.model)
+    payload = json.loads(args.payload)
+    result = run_whisper_qcm(args.audio, payload["question"], payload["choices"], model_size=args.model)
     print(json.dumps(result, indent=2, ensure_ascii=False))
 
 
